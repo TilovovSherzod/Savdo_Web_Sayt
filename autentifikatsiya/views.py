@@ -12,7 +12,6 @@ from django.http import JsonResponse
 from .models import Profil
 from asosiy.views import savat_olish
 
-
 def royxatdan_otish(request):
     """Ro'yxatdan o'tish sahifasi"""
     if request.user.is_authenticated:
@@ -23,6 +22,12 @@ def royxatdan_otish(request):
         email = request.POST.get('email')
         password = request.POST.get('password')
         password_confirm = request.POST.get('password_confirm')
+
+        # Yangi qo'shilgan maydonlar
+        first_name = request.POST.get('first_name', '')
+        last_name = request.POST.get('last_name', '')
+        telefon = request.POST.get('telefon', '')
+        manzil = request.POST.get('manzil', '')
 
         # Parollarni tekshirish
         if password != password_confirm:
@@ -40,9 +45,16 @@ def royxatdan_otish(request):
 
         # Foydalanuvchi yaratish
         user = User.objects.create_user(username=username, email=email, password=password)
+        user.first_name = first_name
+        user.last_name = last_name
+        user.save()
 
         # Profil yaratish
-        Profil.objects.create(foydalanuvchi=user)
+        Profil.objects.create(
+            foydalanuvchi=user,
+            telefon=telefon,
+            manzil=manzil
+        )
 
         # Sessiya savatini foydalanuvchiga bog'lash
         sessiya_savat = savat_olish(request)
@@ -53,16 +65,23 @@ def royxatdan_otish(request):
 
         # Foydalanuvchini tizimga kiritish
         login(request, user)
+
+        # Agar buyurtma ma'lumotlari saqlangan bo'lsa, buyurtma sahifasiga yo'naltirish
+        if 'buyurtma_malumotlari' in request.session:
+            messages.success(request, "Ro'yxatdan muvaffaqiyatli o'tdingiz! Endi buyurtmani yakunlashingiz mumkin.")
+            return redirect('buyurtma_yaratish')
+
         messages.success(request, "Ro'yxatdan muvaffaqiyatli o'tdingiz!")
         return redirect('asosiy')
 
     return render(request, 'autentifikatsiya/royxatdan_otish.html')
 
-
 def kirish(request):
     """Tizimga kirish sahifasi"""
     if request.user.is_authenticated:
         return redirect('asosiy')
+
+    next_url = request.GET.get('next', 'asosiy')
 
     if request.method == 'POST':
         username = request.POST.get('username')
@@ -97,13 +116,21 @@ def kirish(request):
                     sessiya_savat.sessiya_id = None
                     sessiya_savat.save()
 
+            # Agar buyurtma ma'lumotlari saqlangan bo'lsa, buyurtma sahifasiga yo'naltirish
+            if 'buyurtma_malumotlari' in request.session:
+                messages.success(request, "Tizimga muvaffaqiyatli kirdingiz! Endi buyurtmani yakunlashingiz mumkin.")
+                return redirect('buyurtma_yaratish')
+
             messages.success(request, "Tizimga muvaffaqiyatli kirdingiz!")
-            return redirect('asosiy')
+
+            # 'next' parametri bo'lsa, o'sha sahifaga yo'naltirish
+            if 'next' in request.GET and request.GET['next']:
+                return redirect(request.GET['next'])
+            return redirect(next_url)
         else:
             messages.error(request, "Foydalanuvchi nomi yoki parol noto'g'ri")
 
-    return render(request, 'autentifikatsiya/kirish.html')
-
+    return render(request, 'autentifikatsiya/kirish.html', {'next_url': next_url})
 
 def chiqish(request):
     """Tizimdan chiqish"""
@@ -111,17 +138,15 @@ def chiqish(request):
     messages.success(request, "Tizimdan muvaffaqiyatli chiqdingiz!")
     return redirect('asosiy')
 
-
 @login_required
 def profil(request):
     """Foydalanuvchi profili sahifasi"""
     user = request.user
 
-    # Profil mavjudligini tekshirish va mavjud bo'lmasa yaratish
     try:
         profil = user.profil
-    except:
-        # Profil mavjud emas, yangi profil yaratish
+    except Profil.DoesNotExist:
+        # Agar profil mavjud bo'lmasa, yangi yaratish
         profil = Profil.objects.create(foydalanuvchi=user)
 
     if request.method == 'POST':
@@ -147,7 +172,6 @@ def profil(request):
         'user': user,
         'profil': profil,
     })
-
 
 # JWT API uchun ko'rinishlar
 def token_olish(request):
